@@ -1,6 +1,6 @@
 /*
 *   Inteset Z-Wave Plus Motion Sensor "2-in-1" INT-SMMD-N1 aka INT-ZWAV-MTD
-*   v1.1 2023-05-15 by mwhdc
+*   v1.2 2023-05-15 by mwhdc
 *   https://github.com/mwhdc/hubitat/blob/main/inteset-zwave-motion-sensor.groovy
 *   Based on HomeSeer HSM200 Multi-Sensor v1.0 by djdizzyd
 *   https://github.com/djdizzyd/hubitat/blob/master/Drivers/HomeSeer/HSM200-Multi-Sensor.groovy
@@ -47,23 +47,23 @@ metadata {
 @Field static Map ZWAVE_NOTIFICATION_TYPES=[0:"Reserved", 1:"Smoke", 2:"CO", 3:"CO2", 4:"Heat", 5:"Water", 6:"Access Control", 7:"Home Security", 8:"Power Management", 9:"System", 10:"Emergency", 11:"Clock", 12:"First"]
 
 @Field static Map CMD_CLASS_VERS = [
-     0x30: 2  // SENSOR_BINARY
-    ,0x31: 7  // SENSOR_MULTILEVEL
-    ,0x55: 2  // TRANSPORT_SERVICE
-    ,0x59: 1  // ASSOCIATION_GRP_INFO
-    ,0x5A: 1  // DEVICE_RESET_LOCALLY
-    ,0x5E: 2  // ZWAVEPLUS_INFO
-    ,0x6C: 1  // SUPERVISION
-    ,0x70: 1  // CONFIGURATION
-    ,0x71: 8  // ALARM
-    ,0x72: 2  // MANUFACTURER_SPECIFIC
-    ,0x73: 1  // POWERLEVEL
-    ,0x80: 1  // BATTERY
-    ,0x84: 2  // WAKE_UP
-    ,0x85: 2  // ASSOCIATION
-    ,0x86: 3  // VERSION
-    ,0x8E: 3  // MULTI_CHANNEL_ASSOCIATION
-    ,0x9F: 1  // SECURITY_2
+     0x30: 2 // SENSOR_BINARY
+    ,0x31: 7 // SENSOR_MULTILEVEL
+    ,0x55: 2 // TRANSPORT_SERVICE
+    ,0x59: 1 // ASSOCIATION_GRP_INFO
+    ,0x5A: 1 // DEVICE_RESET_LOCALLY
+    ,0x5E: 2 // ZWAVEPLUS_INFO
+    ,0x6C: 1 // SUPERVISION
+    ,0x70: 1 // CONFIGURATION
+    ,0x71: 8 // ALARM
+    ,0x72: 2 // MANUFACTURER_SPECIFIC
+    ,0x73: 1 // POWERLEVEL
+    ,0x80: 1 // BATTERY
+    ,0x84: 2 // WAKE_UP
+    ,0x85: 2 // ASSOCIATION
+    ,0x86: 3 // VERSION
+    ,0x8E: 3 // MULTI_CHANNEL_ASSOCIATION
+    ,0x9F: 1 // SECURITY_2
 ]
 
 void logsOff(){
@@ -77,12 +77,14 @@ void configure() {
 
 void updated() {
     log.info "updated..."
+    log.warn "description logging is: ${txtEnable == true}"
     log.warn "debug logging is: ${logEnable == true}"
     unschedule()
     if (logEnable) runIn(1800,logsOff)
-    List<hubitat.zwave.Command> cmds=[]
-    cmds.addAll(runConfigs())
-    sendToDevice(cmds)
+    // List<hubitat.zwave.Command> cmds=[]
+    // cmds.addAll(runConfigs())
+    // sendToDevice(cmds)
+    state.configUpdatePending=true
 }
 
 List<hubitat.zwave.Command> runConfigs() {
@@ -121,6 +123,22 @@ void zwaveEvent(hubitat.zwave.commands.configurationv1.ConfigurationReport cmd) 
     }
 }
 
+void zwaveEvent(hubitat.zwave.commands.wakeupv2.WakeUpIntervalReport cmd) {
+    state.wakeInterval=cmd.seconds
+}
+
+void zwaveEvent(hubitat.zwave.commands.wakeupv2.WakeUpNotification cmd) {
+    log.info "${device.displayName} woke up"
+    List<hubitat.zwave.Command> cmds=[]
+    cmds.add(zwave.batteryV1.batteryGet())
+    if (state.configUpdatePending) {
+        cmds.addAll(runConfigs())
+        state.configUpdatePending=false
+    }
+    cmds.add(zwave.wakeUpV1.wakeUpNoMoreInformation())
+    sendToDevice(cmds)
+}
+
 void pollDeviceData() {
     List<hubitat.zwave.Command> cmds = []
     cmds.add(zwave.versionV2.versionGet())
@@ -128,25 +146,25 @@ void pollDeviceData() {
     cmds.addAll(processAssociations())
     cmds.addAll(pollConfigs())
     // cmds.add(zwave.configurationV1.configurationSet(parameterNumber: 1, size: 1, scaledConfigurationValue: 1))
-    cmds.add(zwave.sensorMultilevelV6.sensorMultilevelGet(scale: 1, sensorType: 3))
-    cmds.add(zwave.notificationV8.notificationGet(notificationType: 7, event:0))
     cmds.add(zwave.batteryV1.batteryGet())
     cmds.add(zwave.wakeUpV1.wakeUpIntervalGet())
+    cmds.add(zwave.sensorMultilevelV6.sensorMultilevelGet(scale: 1, sensorType: 3))
+    cmds.add(zwave.notificationV8.notificationGet(notificationType: 7, event:0))
     // cmds.add(zwave.sensorMultilevelV6.sensorMultilevelGet(scale: (location.temperatureScale=="F"?1:0), sensorType: 1))
     sendToDevice(cmds)
 }
 
 void refresh() {
     List<hubitat.zwave.Command> cmds=[]
+    cmds.add(zwave.batteryV1.batteryGet())
     cmds.add(zwave.sensorMultilevelV6.sensorMultilevelGet(scale: 1, sensorType: 3))
     cmds.add(zwave.notificationV8.notificationGet(notificationType: 7, event:0))
-    cmds.add(zwave.batteryV1.batteryGet())
     // cmds.add(zwave.sensorMultilevelV6.sensorMultilevelGet(scale: (location.temperatureScale=="F"?1:0), sensorType: 1))
     sendToDevice(cmds)
 }
 
 void installed() {
-    if (logEnable) log.debug "installed()..."
+    if (logEnable) log.debug "installed..."
 }
 
 void eventProcess(Map evt) {
@@ -343,7 +361,6 @@ List<hubitat.zwave.Command> processAssociations(){
     if (logEnable) log.debug "processAssociations cmds: ${cmds}"
     return cmds
 }
-
 
 void zwaveEvent(hubitat.zwave.commands.associationv2.AssociationReport cmd) {
     if (logEnable) log.debug "${device.label?device.label:device.name}: ${cmd}"
