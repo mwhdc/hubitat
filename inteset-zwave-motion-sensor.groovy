@@ -1,6 +1,6 @@
 /*
 *   Inteset Z-Wave Plus Motion Sensor "2-in-1" INT-SMMD-N1 aka INT-ZWAV-MTD
-*   v1.2 2023-05-15 by mwhdc
+*   v1.2.1 2023-05-15 by mwhdc
 *   https://github.com/mwhdc/hubitat/blob/main/inteset-zwave-motion-sensor.groovy
 *   Based on HomeSeer HSM200 Multi-Sensor v1.0 by djdizzyd
 *   https://github.com/djdizzyd/hubitat/blob/master/Drivers/HomeSeer/HSM200-Multi-Sensor.groovy
@@ -9,11 +9,11 @@
 import groovy.transform.Field
 
 metadata {
-    definition (name: "Inteset Z-Wave Plus Motion Sensor", namespace: "mwhdc", author: "mwhdc") {
+    definition (name: "Inteset Z-Wave Plus Motion Sensor", namespace: "mwhdc", author: "djdizzyd & mwhdc") {
         capability "Sensor"
         capability "MotionSensor"
         capability "IlluminanceMeasurement"
-        capability "TemperatureMeasurement"
+        // capability "TemperatureMeasurement"
         capability "Battery"
         capability "Configuration"
         capability "Refresh"
@@ -76,7 +76,7 @@ void configure() {
 }
 
 void updated() {
-    log.info "updated..."
+    log.info "config update pending for next wakeup..."
     log.warn "description logging is: ${txtEnable == true}"
     log.warn "debug logging is: ${logEnable == true}"
     unschedule()
