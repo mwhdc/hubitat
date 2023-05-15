@@ -9,7 +9,7 @@
 import groovy.transform.Field
 
 metadata {
-    definition (name: "Inteset Z-Wave Plus Motion Sensor Test", namespace: "mwhdc", author: "mwhdc") {
+    definition (name: "Inteset Z-Wave Plus Motion Sensor", namespace: "mwhdc", author: "mwhdc") {
         capability "Sensor"
         capability "MotionSensor"
         capability "IlluminanceMeasurement"
@@ -21,8 +21,8 @@ metadata {
     }
     preferences {
         configParams.each { input it.value.input }
-        input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
         input name: "txtEnable", type: "bool", title: "Enable descriptive logging", defaultValue: true
+        input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
     }
 }
 
