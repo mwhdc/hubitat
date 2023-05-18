@@ -1,6 +1,6 @@
 /*
 *   Inteset Z-Wave Plus Motion Sensor "2-in-1" INT-SMMD-N1 aka INT-ZWAV-MTD
-*   v1.2.1 2023-05-15 by mwhdc
+*   v1.2.5 2023-05-16 by mwhdc
 *   https://github.com/mwhdc/hubitat/blob/main/inteset-zwave-motion-sensor.groovy
 *   Based on HomeSeer HSM200 Multi-Sensor v1.0 by djdizzyd
 *   https://github.com/djdizzyd/hubitat/blob/master/Drivers/HomeSeer/HSM200-Multi-Sensor.groovy
@@ -17,10 +17,11 @@ metadata {
         capability "Battery"
         capability "Configuration"
         capability "Refresh"
-        fingerprint mfr:"039A", prod:"0003", deviceId:"0106", inClusters:"0x5E,0x9F,0x55,0x86,0x73,0x85,0x8E,0x59,0x72,0x5A,0x80,0x84,0x30,0x71,0x31,0x70,0x6C", deviceJoinName: "Inteset Z-Wave Plus Motion Sensor"
+        fingerprint mfr: "039A", prod: "0003", deviceId: "0106", inClusters: "0x5E,0x9F,0x55,0x86,0x73,0x85,0x8E,0x59,0x72,0x5A,0x80,0x84,0x30,0x71,0x31,0x70,0x6C", deviceJoinName: "Inteset Z-Wave Plus Motion Sensor"
     }
     preferences {
         configParams.each { input it.value.input }
+        input name: "wakeInterval", type: "number", title: "Wakeup interval", description: "60-86400 sec (43200)", range: "60..86400", defaultValue: 43200
         input name: "txtEnable", type: "bool", title: "Enable descriptive logging", defaultValue: true
         input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: false
     }
@@ -66,13 +67,36 @@ metadata {
     ,0x9F: 1 // SECURITY_2
 ]
 
-void logsOff(){
-    log.warn "debug logging disabled..."
-    device.updateSetting("logEnable",[value:"false",type:"bool"])
+void installed() {
+    if (logEnable) log.debug "installed..."
 }
 
 void configure() {
     runIn(5,pollDeviceData)
+}
+
+void pollDeviceData() {
+    List<hubitat.zwave.Command> cmds = []
+    cmds.add(zwave.versionV2.versionGet())
+    cmds.add(zwave.manufacturerSpecificV2.deviceSpecificGet(deviceIdType: 1))
+    cmds.addAll(processAssociations())
+    cmds.addAll(pollConfigs())
+    // cmds.add(zwave.configurationV1.configurationSet(parameterNumber: 1, size: 1, scaledConfigurationValue: 1))
+    cmds.add(zwave.batteryV1.batteryGet())
+    cmds.add(zwave.wakeUpV1.wakeUpIntervalGet())
+    cmds.add(zwave.sensorMultilevelV6.sensorMultilevelGet(scale: 1, sensorType: 3))
+    cmds.add(zwave.notificationV8.notificationGet(notificationType: 7, event: 0))
+    // cmds.add(zwave.sensorMultilevelV6.sensorMultilevelGet(scale: (location.temperatureScale=="F"?1:0), sensorType: 1))
+    sendToDevice(cmds)
+}
+
+void refresh() {
+    List<hubitat.zwave.Command> cmds=[]
+    cmds.add(zwave.batteryV1.batteryGet())
+    cmds.add(zwave.sensorMultilevelV6.sensorMultilevelGet(scale: 1, sensorType: 3))
+    cmds.add(zwave.notificationV8.notificationGet(notificationType: 7, event: 0))
+    // cmds.add(zwave.sensorMultilevelV6.sensorMultilevelGet(scale: (location.temperatureScale=="F"?1:0), sensorType: 1))
+    sendToDevice(cmds)
 }
 
 void updated() {
@@ -87,13 +111,24 @@ void updated() {
     state.configUpdatePending=true
 }
 
-List<hubitat.zwave.Command> runConfigs() {
-    List<hubitat.zwave.Command> cmds=[]
-    configParams.each { param, data ->
-        if (settings[data.input.name]) {
-            cmds.addAll(configCmd(param, data.parameterSize, settings[data.input.name]))
-        }
+void logsOff(){
+    log.warn "debug logging disabled..."
+    device.updateSetting("logEnable",[value:"false",type:"bool"])
+}
+
+void zwaveEvent(hubitat.zwave.commands.configurationv1.ConfigurationReport cmd) {
+    if(configParams[cmd.parameterNumber.toInteger()]) {
+        Map configParam=configParams[cmd.parameterNumber.toInteger()]
+        int scaledValue
+        cmd.configurationValue.reverse().eachWithIndex { v, index -> scaledValue=scaledValue | v << (8*index) }
+        device.updateSetting(configParam.input.name, [value: "${scaledValue}", type: configParam.input.type])
     }
+}
+
+List<hubitat.zwave.Command> configCmd(parameterNumber, size, scaledConfigurationValue) {
+    List<hubitat.zwave.Command> cmds = []
+    cmds.add(zwave.configurationV1.configurationSet(parameterNumber: parameterNumber.toInteger(), size: size.toInteger(), scaledConfigurationValue: scaledConfigurationValue.toInteger()))
+    cmds.add(zwave.configurationV1.configurationGet(parameterNumber: parameterNumber.toInteger()))
     return cmds
 }
 
@@ -107,24 +142,21 @@ List<hubitat.zwave.Command> pollConfigs() {
     return cmds
 }
 
-List<hubitat.zwave.Command> configCmd(parameterNumber, size, scaledConfigurationValue) {
-    List<hubitat.zwave.Command> cmds = []
-    cmds.add(zwave.configurationV1.configurationSet(parameterNumber: parameterNumber.toInteger(), size: size.toInteger(), scaledConfigurationValue: scaledConfigurationValue.toInteger()))
-    cmds.add(zwave.configurationV1.configurationGet(parameterNumber: parameterNumber.toInteger()))
+List<hubitat.zwave.Command> runConfigs() {
+    List<hubitat.zwave.Command> cmds=[]
+    configParams.each { param, data ->
+        if (settings[data.input.name]) {
+            cmds.addAll(configCmd(param, data.parameterSize, settings[data.input.name]))
+        }
+    }
     return cmds
 }
 
-void zwaveEvent(hubitat.zwave.commands.configurationv1.ConfigurationReport cmd) {
-    if(configParams[cmd.parameterNumber.toInteger()]) {
-        Map configParam=configParams[cmd.parameterNumber.toInteger()]
-        int scaledValue
-        cmd.configurationValue.reverse().eachWithIndex { v, index -> scaledValue=scaledValue | v << (8*index) }
-        device.updateSetting(configParam.input.name, [value: "${scaledValue}", type: configParam.input.type])
+void eventProcess(Map evt) {
+    if (device.currentValue(evt.name).toString() != evt.value.toString() || !eventFilter) {
+        evt.isStateChange=true
+        sendEvent(evt)
     }
-}
-
-void zwaveEvent(hubitat.zwave.commands.wakeupv2.WakeUpIntervalReport cmd) {
-    state.wakeInterval=cmd.seconds
 }
 
 void zwaveEvent(hubitat.zwave.commands.wakeupv2.WakeUpNotification cmd) {
@@ -135,43 +167,26 @@ void zwaveEvent(hubitat.zwave.commands.wakeupv2.WakeUpNotification cmd) {
         cmds.addAll(runConfigs())
         state.configUpdatePending=false
     }
+    cmds.add(zwave.wakeUpV1.wakeUpIntervalSet(seconds: settings.wakeInterval ? settings.wakeInterval : 43200, nodeid:getZwaveHubNodeId()))
+    cmds.add(zwave.wakeUpV1.wakeUpIntervalGet())
     cmds.add(zwave.wakeUpV1.wakeUpNoMoreInformation())
     sendToDevice(cmds)
 }
 
-void pollDeviceData() {
-    List<hubitat.zwave.Command> cmds = []
-    cmds.add(zwave.versionV2.versionGet())
-    cmds.add(zwave.manufacturerSpecificV2.deviceSpecificGet(deviceIdType: 1))
-    cmds.addAll(processAssociations())
-    cmds.addAll(pollConfigs())
-    // cmds.add(zwave.configurationV1.configurationSet(parameterNumber: 1, size: 1, scaledConfigurationValue: 1))
-    cmds.add(zwave.batteryV1.batteryGet())
-    cmds.add(zwave.wakeUpV1.wakeUpIntervalGet())
-    cmds.add(zwave.sensorMultilevelV6.sensorMultilevelGet(scale: 1, sensorType: 3))
-    cmds.add(zwave.notificationV8.notificationGet(notificationType: 7, event:0))
-    // cmds.add(zwave.sensorMultilevelV6.sensorMultilevelGet(scale: (location.temperatureScale=="F"?1:0), sensorType: 1))
-    sendToDevice(cmds)
+void zwaveEvent(hubitat.zwave.commands.wakeupv2.WakeUpIntervalReport cmd) {
+    state.wakeInterval=cmd.seconds
 }
 
-void refresh() {
-    List<hubitat.zwave.Command> cmds=[]
-    cmds.add(zwave.batteryV1.batteryGet())
-    cmds.add(zwave.sensorMultilevelV6.sensorMultilevelGet(scale: 1, sensorType: 3))
-    cmds.add(zwave.notificationV8.notificationGet(notificationType: 7, event:0))
-    // cmds.add(zwave.sensorMultilevelV6.sensorMultilevelGet(scale: (location.temperatureScale=="F"?1:0), sensorType: 1))
-    sendToDevice(cmds)
-}
-
-void installed() {
-    if (logEnable) log.debug "installed..."
-}
-
-void eventProcess(Map evt) {
-    if (device.currentValue(evt.name).toString() != evt.value.toString() || !eventFilter) {
-        evt.isStateChange=true
-        sendEvent(evt)
+void zwaveEvent(hubitat.zwave.commands.batteryv1.BatteryReport cmd) {
+    Map evt = [name: "battery", unit: "%"]
+    if (cmd.batteryLevel == 0xFF) {
+        evt.value = "1"
+        evt.descriptionText = "${device.displayName} ${evt.name} is low"
+    } else {
+        evt.value = "${cmd.batteryLevel}"
+        evt.descriptionText = "${device.displayName} ${evt.name} is ${evt.value} ${evt.unit}"
     }
+    eventProcess(evt)
 }
 
 void zwaveEvent(hubitat.zwave.commands.sensormultilevelv5.SensorMultilevelReport cmd) {
@@ -183,17 +198,16 @@ void zwaveEvent(hubitat.zwave.commands.sensormultilevelv5.SensorMultilevelReport
             evt.value = cmd.scaledSensorValue.toInteger()
             evt.unit = cmd.scale==0?"C":"F"
             evt.isStateChange=true
-            evt.descriptionText="${device.displayName} temperature is ${evt.value}"
             break
         case 3:
             evt.name = "illuminance"
             evt.value = cmd.scaledSensorValue.toInteger()
-            evt.unit = "lux"
+            evt.unit = "lx"
             evt.isStateChange=true
-            evt.descriptionText="${device.displayName} illuminance is ${evt.value} lx"
             break
     }
     if (evt.isStateChange) {
+        evt.descriptionText="${device.displayName} ${evt.name} is ${evt.value} ${evt.unit}"
         if (txtEnable) log.info evt.descriptionText
         eventProcess(evt)
     }
@@ -201,55 +215,48 @@ void zwaveEvent(hubitat.zwave.commands.sensormultilevelv5.SensorMultilevelReport
 
 void zwaveEvent(hubitat.zwave.commands.notificationv8.NotificationReport cmd) {
     Map evt = [isStateChange:false]
-    // log.info "Notification: " + ZWAVE_NOTIFICATION_TYPES[cmd.notificationType.toInteger()]
+    // log.debug "Notification: " + ZWAVE_NOTIFICATION_TYPES[cmd.notificationType.toInteger()]
     if (cmd.notificationType==7) {
         // home security
+        evt.name = "motion"
         switch (cmd.event) {
             case 0:
                 // state idle
                 if (cmd.eventParametersLength > 0) {
                     switch (cmd.eventParameter[0]) {
                         case 7:
-                            evt.name = "motion"
                             evt.value = "inactive"
                             evt.isStateChange = true
-                            evt.descriptionText = "${device.displayName} motion is ${evt.value}"
                             break
                         case 8:
-                            evt.name = "motion"
                             evt.value = "inactive"
                             evt.isStateChange = true
-                            evt.descriptionText = "${device.displayName} motion is ${evt.value}"
                             break
                     }
                 } else {
-                    evt.name = "motion"
                     evt.value = "inactive"
-                    evt.descriptionText = "${device.displayName} motion is ${evt.value}"
                     evt.isStateChange = true
                 }
                 break
             case 7:
                 // motion detected (location provided)
-                evt.name = "motion"
                 evt.value = "active"
                 evt.isStateChange = true
-                evt.descriptionText = "${device.displayName} motion is ${evt.value}"
                 break
             case 8:
                 // motion detected
                 evt.name = "motion"
                 evt.value = "active"
                 evt.isStateChange = true
-                evt.descriptionText = "${device.displayName} motion is ${evt.value}"
                 break
             case 254:
                 // unknown event/state
-                log.warn "Device sent unknown event / state notification"
+                log.warn "${device.displayName} sent unknown event / state notification"
                 break
         }
     }
     if (evt.isStateChange) {
+        evt.descriptionText = "${device.displayName} ${evt.name} is ${evt.value}"
         if (txtEnable) log.info evt.descriptionText
         eventProcess(evt)
     }
@@ -277,18 +284,6 @@ void zwaveEvent(hubitat.zwave.commands.supervisionv1.SupervisionGet cmd) {
         zwaveEvent(encapsulatedCommand)
     }
     sendToDevice(new hubitat.zwave.commands.supervisionv1.SupervisionReport(sessionID: cmd.sessionID, reserved: 0, moreStatusUpdates: false, status: 0xFF, duration: 0))
-}
-
-void zwaveEvent(hubitat.zwave.commands.batteryv1.BatteryReport cmd) {
-    Map evt = [name: "battery", unit: "%"]
-    if (cmd.batteryLevel == 0xFF) {
-        evt.descriptionText = "${device.displayName} battery is low"
-        evt.value = "1"
-    } else {
-        evt.descriptionText = "${device.displayName} battery is ${cmd.batteryLevel}%"
-        evt.value = "${cmd.batteryLevel}"
-    }
-    eventProcess(evt)
 }
 
 void zwaveEvent(hubitat.zwave.commands.manufacturerspecificv2.DeviceSpecificReport cmd) {
